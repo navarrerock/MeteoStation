@@ -1,0 +1,15 @@
+{
+  "wifi_ssid": "YOUR_WIFI_NAME",
+  "wifi_pass": "YOUR_WIFI_PASSWORD",
+  "brightness": 120,
+  "sleep_min": 2,
+  "temp_unit": "C",
+  "press_unit": "hPa",
+  "weather_lat": 0.0,
+  "weather_lon": 0.0,
+  "weather_city": "Your City",
+  "utc_offset": 0,
+  "timezone": "UTC",
+  "sea_level_hpa": 1013.25,
+  "weather_refresh_min": 30
+}
