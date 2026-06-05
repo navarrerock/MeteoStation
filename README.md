@@ -50,7 +50,7 @@ Before installing, you need two things on your computer.
 
 **Step 1 — Clone the repository:**
 ```bash
-git clone https://github.com/YOUR_USERNAME/MeteoStation.git
+git clone https://github.com/navarrerock/MeteoStation.git
 cd MeteoStation
 ```
 
