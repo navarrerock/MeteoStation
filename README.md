@@ -3,7 +3,11 @@
 An embedded weather station built on **M5Stack CoreS3 SE** (ESP32-S3), written in pure MicroPython. Measures indoor temperature, humidity, and atmospheric pressure via an ENV III sensor, fetches outdoor weather forecasts from the Open-Meteo API over WiFi, and displays everything across five navigable screens on a 2.0" touchscreen.
 
 ---
-
+![Main screen](images/1.jpg)!
+![Device](images/3.jpg)!
+![Data](images/2.jpg)!
+![Forecast](images/4.jpg)!
+![Settings](images/5.jpg)!
 ## Features
 
 - **Five screens** — Main, Data, Weather, Forecast, Settings — navigated via a PNG icon nav bar
