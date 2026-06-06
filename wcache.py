@@ -7,7 +7,7 @@ import os
 
 CACHE_DIR  = "/flash/cache"
 CACHE_FILE = "/flash/cache/weather.json"
-
+ARCHIVE_FILE = "/flash/cache/archive.json"
 STALE_HOURS = 6 
 
 
@@ -77,3 +77,34 @@ def clear():
         return True
     except:
         return False
+def save_archive(days_list, date_str):
+    
+    _ensure_dir()
+    try:
+        payload = {
+            "saved_date": date_str,
+            "days": days_list,
+        }
+        with open(ARCHIVE_FILE, 'w') as f:
+            json.dump(payload, f)
+        print("[archive] saved %d days" % len(days_list))
+        return True
+    except Exception as e:
+        print("[archive] save error:", e)
+        return False
+
+
+def load_archive(today_str):
+    
+    try:
+        with open(ARCHIVE_FILE, 'r') as f:
+            payload = json.load(f)
+        if payload.get("saved_date") != today_str:
+            print("[archive] stale, need refresh")
+            return None
+        days = payload.get("days") or []
+        print("[archive] loaded from cache, %d days" % len(days))
+        return days
+    except Exception as e:
+        print("[archive] load error:", e)
+        return None
