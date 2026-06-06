@@ -89,6 +89,7 @@ last_ntp_ms     = 0
 
 sensor_data     = {'temp': 0.0, 'humi': 0.0, 'press': 0.0, 'battery': 0}
 outdoor_weather = None
+archive_data    = None   # [{date, min, max, rain, wind}, ...]
 temp_history    = []
 press_history = []
 last_minute_ms = 0
@@ -277,7 +278,64 @@ def fetch_weather():
     except Exception as e:
         print("Weather fail:", e)
         return False
+def fetch_archive():
+    global archive_data
+    t_now    = get_local_time()
+    today_str = "%04d-%02d-%02d" % (t_now[0], t_now[1], t_now[2])
 
+    # ── cache chekup ──
+    cached = wcache.load_archive(today_str)
+    if cached:
+        archive_data = cached
+        print("[archive] using cache")
+        return True
+
+    # ── date  ───────────────────
+    now_ts     = time.time()
+    t_yesterday  = time.gmtime(now_ts - 86400)
+    t_3days_ago  = time.gmtime(now_ts - 3 * 86400)
+    end_date   = "%04d-%02d-%02d" % (t_yesterday[0],  t_yesterday[1],  t_yesterday[2])
+    start_date = "%04d-%02d-%02d" % (t_3days_ago[0],  t_3days_ago[1],  t_3days_ago[2])
+
+    lat = cfg['weather_lat']
+    lon = cfg['weather_lon']
+    url = (
+        "https://archive-api.open-meteo.com/v1/archive"
+        "?latitude=%.4f&longitude=%.4f"
+        "&start_date=%s&end_date=%s"
+        "&daily=temperature_2m_max,temperature_2m_min,"
+        "precipitation_sum,wind_speed_10m_max"
+    ) % (lat, lon, start_date, end_date)
+
+    try:
+        r = requests.get(url, timeout=15)
+        if r.status_code != 200:
+            print("[archive] HTTP error:", r.status_code)
+            r.close()
+            return False
+        d = r.json()
+        r.close()
+
+        dd = d['daily']
+        days = []
+        for i in range(len(dd['time'])):
+            days.append({
+                'date':  dd['time'][i],              # 'YYYY-MM-DD'
+                'max':   dd['temperature_2m_max'][i],
+                'min':   dd['temperature_2m_min'][i],
+                'rain':  dd['precipitation_sum'][i],
+                'wind':  dd['wind_speed_10m_max'][i],
+            })
+
+        archive_data = days
+        wcache.save_archive(days, today_str)
+        print("[archive] OK, %d days fetched" % len(days))
+        return True
+
+    except Exception as e:
+        print("[archive] fetch fail:", e)
+        return False
+                                      # WiFi
 async def do_wifi_tasks(force_ntp=False):
     global last_ntp_ms, last_weather_ms
     global is_wifi_active, is_fetching
@@ -296,6 +354,7 @@ async def do_wifi_tasks(force_ntp=False):
         render()                  
         if fetch_weather():       
             success = True
+            fetch_archive() 
         last_weather_ms = time.ticks_ms()
         disconnect_wifi()
        
@@ -599,60 +658,89 @@ def draw_data_screen():
     trend = get_pressure_trend()
     canvas.drawImage("/flash/icons/ui/pressure_%s_24.png" % trend, 228, 77)
 
-    # ── BAR CHART ────────────────────────────────────
-    BX = 10    
-    BY = 114   
-    BW = 300   
-    BH = 72    
+   # ── ARCHIVE SECTION ──────────────────────────────────
+    AX = 6
+    AY = 112
+    AW = 308
+    AH = 100
 
-    canvas.fillRoundRect(BX - 4, BY - 6, BW + 8, BH + 28, 6, C_CARD)
-    canvas.drawRoundRect(BX - 4, BY - 6, BW + 8, BH + 28, 6, C_GLASS)
+    canvas.fillRoundRect(AX, AY, AW, AH, 6, C_CARD)
+    canvas.fillRect(AX, AY + 2, 3, AH - 4, C_A1)
 
-    if len(temp_history) >= 2:
-        mn  = min(temp_history)
-        mx  = max(temp_history)
-        rng = mx - mn if mx != mn else 1.0
-        n   = len(temp_history)
+    # ── Header ────────────────────────────────────────
+    canvas.setTextSize(1)
+    canvas.setTextColor(C_TXT2, C_CARD)
+    canvas.drawString("3-day history", AX + 8, AY + 8)
 
-        avg = sum(temp_history) / n
-        avg_y = BY + BH - int(BH * (avg - mn) / rng)
-        canvas.drawLine(BX, avg_y, BX + BW, avg_y, C_SEP)
+    canvas.setTextColor(0x60A8D0, C_CARD)
+    canvas.drawString("precip",   AX + 100, AY + 8)
+    canvas.setTextColor(0x8080C0, C_CARD)
+    canvas.drawString("wind(km/h)",  AX + 146, AY + 8)
+    canvas.setTextColor(C_ICE2,   C_CARD)
+    canvas.drawString("min",      AX + 210, AY + 8)
+    canvas.setTextColor(0xFF6B6B, C_CARD)
+    canvas.drawString("max",      AX + 260, AY + 8)
 
-        
-        bar_w = BW // GRAPH_MAX   
-        for i, val in enumerate(temp_history):
-            bh = max(2, int(BH * (val - mn) / rng))
-            bx = BX + i * bar_w
-            by = BY + BH - bh
+    canvas.drawLine(AX + 8, AY + 17, AX + AW - 8, AY + 17, C_SEP)
 
-            ratio = (val - mn) / rng
-            if ratio > 0.75:
-                bc = 0xFF6B6B   
-            elif ratio > 0.5:
-                bc = 0xFFCA28   
-            elif ratio > 0.25:
-                bc = C_ICE1     
-            else:
-                bc = C_FROST    
+    # ── helper: precip ─────────────────────────
+    def rain_label(mm):
+        if mm is None or mm == 0.0: return "dry"
+        if mm < 1.0:                return "trace"
+        if mm < 5.0:                return "light"
+        if mm < 15.0:               return "mod."
+        return                             "heavy"
 
-            canvas.fillRect(bx, by, bar_w - 1, bh, bc)
-            canvas.drawLine(bx, by, bx + bar_w - 2, by, C_SNOW)
+    DAY_NAMES = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
 
-        # Min / Avg / Max
-        canvas.setTextColor(C_ICE1, C_CARD)
-        canvas.setTextSize(1)
-        canvas.drawString("Min %.1f" % mn,  BX,        BY + BH + 8)
-        canvas.setTextColor(C_TXT2, C_CARD)
-        canvas.drawString("Avg %.1f" % avg, BX + 100,  BY + BH + 8)
-        canvas.setTextColor(0xFF6B6B, C_CARD)
-        canvas.drawString("Max %.1f" % mx,  BX + 220,  BY + BH + 8)
+    if archive_data and len(archive_data) >= 3:
+        days = archive_data[-3:]
+
+        for idx, day in enumerate(days):
+            # step 18px 
+            row_y = AY + 22 + idx * 18
+
+            # line friday ( needs rework!)
+            if idx == 2:
+                canvas.fillRect(0,   row_y - 2, 6,   AH, 0x040810)    # shadows
+                canvas.fillRect(314, row_y - 2, 6,   AH, 0x040810)     
+
+            # 'YYYY-MM-DD'
+            ds = day['date']
+            yr, mo, dy = int(ds[0:4]), int(ds[5:7]), int(ds[8:10])
+            ts  = time.mktime((yr, mo, dy, 12, 0, 0, 0, 0))
+            wd  = time.gmtime(ts)[6]
+            day_label = "%s %02d" % (DAY_NAMES[wd], dy)
+
+            # txt colour
+            tc = C_TXT  if idx == 2 else C_TXT2
+            bg = 0x040810 if idx == 2 else 0x040810
+
+            canvas.setTextSize(1)
+            canvas.setTextColor(tc, bg)
+            canvas.drawString(day_label, AX + 8, row_y + 8)
+
+            # precip
+            rl = rain_label(day.get('rain'))
+            # dry 
+            rc = C_TXT2 if rl == "dry" else 0x60A8D0
+            canvas.setTextColor(rc, bg)
+            canvas.drawString(rl, AX + 100, row_y + 8)
+
+            # wind
+            canvas.setTextColor(0x8080C0, bg)
+            canvas.drawString("%d" % int(day.get('wind') or 0), AX + 163, row_y + 8)
+
+            # min / max
+            canvas.setTextColor(C_ICE2,   bg)
+            canvas.drawString("%.1f" % day['min'], AX + 205, row_y + 8)
+            canvas.setTextColor(0xFF6B6B, bg)
+            canvas.drawString("%.1f" % day['max'], AX + 257, row_y + 8)
 
     else:
         canvas.setTextColor(C_TXT2, C_CARD)
         canvas.setTextSize(1)
-        canvas.drawString("Collecting data...", 90, BY + BH//2 - 4)
-        canvas.drawString("(%d / %d min)" % (len(temp_history), GRAPH_MAX),
-                          105, BY + BH//2 + 8)
+        canvas.drawString("History: waiting for WiFi...", AX + 20, AY + 50)
 
     draw_nav_bar(canvas)
     canvas.push(0, 0)
@@ -1343,5 +1431,6 @@ async def main():
         
 if __name__ == '__main__':
     asyncio.run(main())
+
 
 
