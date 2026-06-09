@@ -90,6 +90,13 @@ last_ntp_ms     = 0
 sensor_data     = {'temp': 0.0, 'humi': 0.0, 'press': 0.0, 'battery': 0}
 outdoor_weather = None
 archive_data    = None   # [{date, min, max, rain, wind}, ...]
+wifi_screen    = 0      # 0=off, 1=list, 2=password
+wifi_networks  = []     # [(ssid_str, rssi), ...]
+wifi_selected  = None   # ssid 
+wifi_password  = ""     
+wifi_kb_shift  = False  # Shift
+wifi_kb_nums   = False  # False=ABC, True=123
+wifi_show_pass = False  
 temp_history    = []
 press_history = []
 last_minute_ms = 0
@@ -468,7 +475,22 @@ def draw_nav_bar(canvas):
 
         if i > 0:
             canvas.drawLine(x, y + 4, x, y + NAV_H - 4, C_SEP)
-
+# ══════════════════════════════════════════════════════
+#  Helper stripe
+# ══════════════════════════════════════════════════════
+def fill_glass_rect(canvas, x, y, w, h, r, base_color, border=6):
+    
+    for sy in range(y, y + border, 2):
+        canvas.drawLine(x + r, sy, x + w - r, sy, base_color)
+    
+    for sy in range(y + h - border, y + h, 2):
+        canvas.drawLine(x + r, sy, x + w - r, sy, base_color)
+    
+    for sx in range(x, x + border, 2):
+        canvas.drawLine(sx, y + r, sx, y + h - r, base_color)
+    
+    for sx in range(x + w - border, x + w, 2):
+        canvas.drawLine(sx, y + r, sx, y + h - r, base_color)
 # ══════════════════════════════════════════════════════
 #  Screen 0 - main
 # ══════════════════════════════════════════════════════
@@ -480,15 +502,13 @@ def draw_main_screen():
     battery = sensor_data['battery']
 
     canvas = M5.Lcd.newCanvas(320, 240, 16, True)
-
-    grad = [0x040810, 0x050A14, 0x060C18, 0x07101C,
-            0x081220, 0x091424, 0x091828, 0x0A1C2C]
-    for i, c in enumerate(grad):
-        canvas.fillRect(0, i * 30, 320, 30, c)
+    # ── bg ─────────────
+    canvas.drawImage("/flash/bg/bg_stars.bmp", 0, 0)
 
     # ── TOP BAR ──────────────────────────────────────
     canvas.fillRect(0, 0, 320, 32, C_TOPBAR)
     canvas.fillRect(0, 31, 320, 1, C_SEP)
+
     canvas.fillCircle(14, 16, 5, C_GLASS)
     canvas.fillCircle(14, 16, 3, C_ICE1)
     canvas.setTextColor(C_TXT2, C_TOPBAR)
@@ -496,91 +516,78 @@ def draw_main_screen():
     canvas.drawString(d, 26, 10)
     canvas.drawString(t, 258, 10)
 
-    # ── temp ───────────────────────────
-    canvas.fillRoundRect(8, 40, 192, 105, 10, C_CARD)
-
-     # Depth tricks
-    canvas.drawLine(9,  41, 198, 41,  0x1A3A5A)  # top highlight
-    canvas.drawLine(9,  42, 198, 42,  0x112840)  # sub-highlight
-    canvas.drawLine(9,  144, 198, 144, 0x040810) # bottom shadow
-    canvas.drawLine(10, 40,  10,  144, 0x1A3A5A) # left highlight
-
-     # Border
-    canvas.drawRoundRect(8, 40, 192, 105, 10, C_ICE1)
-    canvas.fillRect(8, 50, 3, 87, C_ICE1)
-    canvas.fillRoundRect(8, 40, 3, 16, 3, C_ICE1)
-
-    canvas.drawImage("/flash/icons/ui/thermometer.png", 128, 44)
+    # ── temp ─────────
+    canvas.drawRoundRect(8, 38, 138, 90, 10, C_ICE1)
+    canvas.fillRoundRect(8, 38, 138, 90, 12, C_CARD)
+    canvas.fillRect(8, 48, 3, 72, C_ICE1)
 
     canvas.setTextColor(C_TXT2, C_CARD)
     canvas.setTextSize(1)
-    canvas.drawString("Temp", 18, 47)
-    canvas.setTextColor(C_TXT, C_CARD)       # ← bg=C_CARD
+    canvas.drawString("Temperature", 18, 45)
+    canvas.setTextColor(C_TXT2, C_CARD)
     canvas.setTextSize(3)
     t_val = temp if cfg['temp_unit'] == 'C' else temp * 9/5 + 32
-    canvas.drawString("%.1f" % t_val, 18, 65)
+    canvas.drawString("%.1f" % t_val, 18, 62)
     canvas.setTextSize(1)
-    canvas.setTextColor(C_ICE1, C_CARD)
-    canvas.drawString(cfg['temp_unit'], 138, 73)
+    canvas.setTextColor(C_ICE1, C_DARK)
+    canvas.drawString(cfg['temp_unit'], 110, 70)
+     
 
-    # ── bat ───────────────────────────────
-    canvas.fillRoundRect(207, 39, 106, 107, 11, C_ICE2)
-    canvas.fillRoundRect(208, 40, 104, 105, 10, C_CARD)
-    canvas.fillRect(208, 50, 3, 87, C_ICE2)
-    canvas.fillRoundRect(208, 40, 3, 16, 3, C_ICE2)
+    # ── temp: png ───
+    canvas.drawImage("/flash/icons/ui/thermometer.png", 104, 52)
 
-    canvas.drawImage("/flash/icons/ui/battery_shell.png", 211, 35)  
-    fw = max(2, int(38 * battery / 100))   # max 38px
+    # ── power ───────────────────────────────────────
+    canvas.drawRoundRect(210, 38, 102, 90, 10, C_ICE2)
+    canvas.fillRoundRect(210, 38, 102, 90, 12, C_CARD)
+
+    canvas.drawImage("/flash/icons/ui/battery_shell.png", 213, 34)
+    fw = max(2, int(38 * battery / 100))
     bc = 0x4AB3D6 if battery > 50 else (0xF5C842 if battery > 20 else 0xE84040)
-    canvas.fillRoundRect(222, 60, fw, 14, 2, bc)                    
+    canvas.fillRoundRect(224, 58, fw, 14, 2, bc)
 
     canvas.setTextColor(C_TXT2, C_CARD)
     canvas.setTextSize(1)
-    canvas.drawString("Battery", 218, 47)
-    canvas.setTextColor(C_TXT, C_CARD)       # ← bg=C_CARD
+    canvas.drawString("Battery", 220, 45)
+    canvas.setTextColor(C_TXT2, C_CARD)
     canvas.setTextSize(2)
-    canvas.drawString("%d%%" % battery, 220, 88)
+    canvas.drawString("%d%%" % battery, 220, 86)
 
-    # ── hum ─────────────────────────────
-    canvas.fillRoundRect(7, 152, 146, 67, 11, C_FROST)
-    canvas.fillRoundRect(8, 153, 144, 65, 10, C_CARD)
-    canvas.fillRect(8, 163, 3, 47, C_FROST)
-    canvas.fillRoundRect(8, 153, 3, 16, 3, C_FROST)
-    
-    canvas.drawImage("/flash/icons/ui/humidity.png", 83, 153)
-
+    # ── hum ─────────────────────────────────────
+    canvas.drawRoundRect(8, 136, 152, 64, 10, C_FROST)
+    canvas.fillRect(8, 146, 3, 48, C_FROST)
+    canvas.fillRoundRect(8, 136, 152, 64, 12, C_CARD)
+    canvas.drawImage("/flash/icons/ui/humidity.png", 100, 138)
 
     canvas.setTextColor(C_TXT2, C_CARD)
     canvas.setTextSize(1)
-    canvas.drawString("Humidity", 18, 161)
-    canvas.setTextColor(C_TXT, C_CARD)       # ← bg=C_CARD
+    canvas.drawString("Humidity", 18, 143)
+    canvas.fillRoundRect(14, 156, 52, 23, 5, C_CARD)
+    canvas.setTextColor(C_TXT2, C_CARD)
     canvas.setTextSize(2)
-    canvas.drawString("%d%%" % humi, 18, 178)
+    canvas.drawString("%d%%" % humi, 18, 162)
 
-    # ── pres ─────────────────────────────────
+    # ── press ──────────────────────────────────────────
     p_val  = press if cfg['press_unit'] == 'hPa' else int(press * 0.75006)
     p_unit = cfg['press_unit']
-    canvas.fillRoundRect(159, 152, 154, 67, 11, C_FROST)
-    canvas.fillRoundRect(160, 153, 152, 65, 10, C_CARD)
-    canvas.fillRect(160, 163, 3, 47, C_FROST)
-    canvas.fillRoundRect(160, 153, 3, 16, 3, C_FROST)
-
-    # icon
-    canvas.drawImage("/flash/icons/ui/pressure.png", 248, 153)
+    canvas.drawRoundRect(168, 136, 144, 64, 10, C_FROST)
+    canvas.fillRoundRect(168, 136, 144, 64, 12, C_CARD)
 
     canvas.setTextColor(C_TXT2, C_CARD)
     canvas.setTextSize(1)
-    canvas.drawString("Pressure", 170, 161)
-    canvas.setTextColor(C_TXT, C_CARD)       # ← bg=C_CARD
+    canvas.drawString("Pressure", 178, 143)
+    canvas.setTextColor(C_TXT2, C_CARD)
     canvas.setTextSize(2)
-    canvas.drawString("%d" % p_val, 170, 178)
+    canvas.drawString("%d" % p_val, 178, 162)
     canvas.setTextSize(1)
     canvas.setTextColor(C_TXT2, C_CARD)
-    canvas.drawString(p_unit, 232, 190)
+    canvas.drawString(p_unit, 178, 182)
 
-    # ── GLACIER ACCENT ─────────────────────────
+    #  PNG
+    canvas.drawImage("/flash/icons/ui/pressure.png", 250, 130)
+
+    # ──  GLACIER  ─────────────────────────
     canvas.fillRect(0, 237, 320, 3, C_ICE1)
-    canvas.fillRect(0, 236, 80, 1, C_ICE2)   # highlight
+    canvas.fillRect(0, 236, 80, 1, C_ICE2)  
 
     draw_nav_bar(canvas)
     canvas.push(0, 0)
@@ -590,30 +597,38 @@ def draw_main_screen():
 # ══════════════════════════════════════════════════════
 def draw_data_screen():
     d, t = format_datetime()
-    temp    = sensor_data['temp']
-    humi    = sensor_data['humi']
-    press   = sensor_data['press']
+    temp  = sensor_data['temp']
+    humi  = sensor_data['humi']
+    press = sensor_data['press']
 
     hi  = heat_index(temp, humi)
     alt = altitude_from_pressure(press)
 
     canvas = M5.Lcd.newCanvas(320, 240, 16, True)
 
-    grad = [0x040810, 0x050A14, 0x060C18, 0x07101C,
-            0x081220, 0x091424, 0x091828, 0x0A1C2C]
-    for i, c in enumerate(grad):
-        canvas.fillRect(0, i * 30, 320, 30, c)
+    # ── bg + stripe  ────────────────────────────
+    canvas.fillRect(0, 0, 320, 240, C_BG)
+    for y in range(32, 212, 3):
+        canvas.drawLine(0, y, 320, y, 0x050C14)   
+
+    # vignette
+    canvas.fillRect(0,   0, 10, 240, 0x020508)
+    canvas.fillRect(310, 0, 10, 240, 0x020508)
 
     draw_topbar(canvas, d, t, title="Data")
 
-    canvas.fillRoundRect(6, 36, 152, 68, 8, C_CARD)
-    canvas.drawRoundRect(6, 36, 152, 68, 8, C_ICE1)
-    canvas.drawLine(7, 37, 157, 37, C_GLASS)       # top highlight
-    canvas.drawLine(7, 103, 157, 103, C_DARK)      # bottom shadow
-    canvas.fillRect(6, 46, 3, 50, C_ICE1)          
-
-    canvas.setTextColor(C_TXT2, C_CARD)
+    # ── Feels like — glass ───────────────────
+    canvas.fillRoundRect(8, 36, 148, 70, 12, C_CARD)
+    # inner highlight top (glass)
+    canvas.drawLine(12, 38, 152, 38, 0x1A3A5C)     
+    canvas.drawLine(12, 39, 152, 39, 0x0F2840)     
+    # inner shadow 
+    canvas.drawLine(12, 104, 152, 104, 0x050C14)
+    # top border cyan
+    canvas.fillRect(82, 36, 74, 2, C_DARK)
+    
     canvas.setTextSize(1)
+    canvas.setTextColor(C_TXT2, C_CARD)
     canvas.drawString("Feels like", 18, 42)
 
     canvas.setTextColor(C_TXT, C_CARD)
@@ -621,7 +636,7 @@ def draw_data_screen():
     canvas.drawString("%.1f" % hi, 18, 58)
     canvas.setTextSize(1)
     canvas.setTextColor(C_ICE1, C_CARD)
-    canvas.drawString("C", 90, 64)
+    canvas.drawString("C", 18 + len("%.1f" % hi) * 12 + 2, 64)
 
     canvas.setTextColor(C_TXT2, C_CARD)
     if temp < 27 or humi < 40:
@@ -632,17 +647,19 @@ def draw_data_screen():
         canvas.setTextColor(dc, C_CARD)
         canvas.drawString("%+.1f vs real" % diff, 18, 82)
 
-    canvas.fillRoundRect(162, 36, 152, 68, 8, C_CARD)
-    canvas.drawRoundRect(162, 36, 152, 68, 8, C_ICE1)
-    canvas.drawLine(163, 37, 313, 37, C_GLASS)
-    canvas.drawLine(163, 103, 313, 103, C_DARK)
-    canvas.fillRect(162, 46, 3, 50, C_FROST)
+    # ── Altitude — glass ─────────────────────
+    canvas.fillRoundRect(164, 36, 148, 70, 12, C_CARD)
+    # inner highlight
+    canvas.drawLine(168, 38, 308, 38, 0x1A3A5C)
+    canvas.drawLine(168, 39, 308, 39, 0x0F2840)
+    # inner shadow 
+    canvas.drawLine(168, 104, 308, 104, 0x050C14)
+    canvas.fillRect(164, 36, 74, 2, C_DARK)
 
-    # PNG altitude
     canvas.drawImage("/flash/icons/ui/altitude_48.png", 256, 38)
 
-    canvas.setTextColor(C_TXT2, C_CARD)
     canvas.setTextSize(1)
+    canvas.setTextColor(C_TXT2, C_CARD)
     canvas.drawString("Altitude", 174, 42)
 
     canvas.setTextColor(C_TXT, C_CARD)
@@ -654,36 +671,42 @@ def draw_data_screen():
 
     canvas.setTextColor(C_TXT2, C_CARD)
     canvas.drawString("P: %.0f hPa" % press, 174, 82)
-
     trend = get_pressure_trend()
     canvas.drawImage("/flash/icons/ui/pressure_%s_24.png" % trend, 228, 77)
 
-   # ── ARCHIVE SECTION ──────────────────────────────────
-    AX = 6
-    AY = 112
-    AW = 308
-    AH = 100
+    # ── ARCHIVE CARD ──────────────────────────────────
+    AX = 8
+    AY = 114
+    AW = 304
+    AH = 96
 
-    canvas.fillRoundRect(AX, AY, AW, AH, 6, C_CARD)
-    canvas.fillRect(AX, AY + 2, 3, AH - 4, C_A1)
+    # ── ARCHIVE CARD — glass ─────────────────────────
+    canvas.fillRoundRect(AX, AY, AW, AH, 12, C_CARD)
+    # inner highlight
+    canvas.drawLine(AX+4, AY+2, AX+AW-4, AY+2, 0x1A3A5C)
+    canvas.drawLine(AX+4, AY+3, AX+AW-4, AY+3, 0x0F2840)
+    # inner shadow 
+    canvas.drawLine(AX+4, AY+AH-2, AX+AW-4, AY+AH-2, 0x050C14)
+    # top border cyan
+    canvas.fillRect(AX,           AY, AW // 2, 2, C_DARK)
+    canvas.fillRect(AX + AW // 2, AY, AW // 2, 2, C_DARK)
 
-    # ── Header ────────────────────────────────────────
+    # ── header ─────────────────────────────────────
     canvas.setTextSize(1)
     canvas.setTextColor(C_TXT2, C_CARD)
-    canvas.drawString("3-day history", AX + 8, AY + 8)
-
+    canvas.drawString("3-day history", AX + 10, AY + 9)
     canvas.setTextColor(0x60A8D0, C_CARD)
-    canvas.drawString("precip",   AX + 100, AY + 8)
+    canvas.drawString("precip",      AX + 102, AY + 9)
     canvas.setTextColor(0x8080C0, C_CARD)
-    canvas.drawString("wind(km/h)",  AX + 146, AY + 8)
-    canvas.setTextColor(C_ICE2,   C_CARD)
-    canvas.drawString("min",      AX + 210, AY + 8)
+    canvas.drawString("wind(km/h)",  AX + 146, AY + 9)
+    canvas.setTextColor(C_ICE2, C_CARD)
+    canvas.drawString("min",         AX + 212, AY + 9)
     canvas.setTextColor(0xFF6B6B, C_CARD)
-    canvas.drawString("max",      AX + 260, AY + 8)
+    canvas.drawString("max",         AX + 262, AY + 9)
 
-    canvas.drawLine(AX + 8, AY + 17, AX + AW - 8, AY + 17, C_SEP)
+    canvas.drawLine(AX + 10, AY + 18, AX + AW - 10, AY + 18, C_SEP)
 
-    # ── helper: precip ─────────────────────────
+    # ── helper ────────────────────────────────────────
     def rain_label(mm):
         if mm is None or mm == 0.0: return "dry"
         if mm < 1.0:                return "trace"
@@ -697,45 +720,30 @@ def draw_data_screen():
         days = archive_data[-3:]
 
         for idx, day in enumerate(days):
-            # step 18px 
-            row_y = AY + 22 + idx * 18
+            row_y = AY + 21 + idx * 19
 
-            # line friday ( needs rework!)
-            if idx == 2:
-                canvas.fillRect(0,   row_y - 2, 6,   AH, 0x040810)    # shadows
-                canvas.fillRect(314, row_y - 2, 6,   AH, 0x040810)     
-
-            # 'YYYY-MM-DD'
             ds = day['date']
             yr, mo, dy = int(ds[0:4]), int(ds[5:7]), int(ds[8:10])
-            ts  = time.mktime((yr, mo, dy, 12, 0, 0, 0, 0))
-            wd  = time.gmtime(ts)[6]
+            ts = time.mktime((yr, mo, dy, 12, 0, 0, 0, 0))
+            wd = time.gmtime(ts)[6]
             day_label = "%s %02d" % (DAY_NAMES[wd], dy)
 
-            # txt colour
-            tc = C_TXT  if idx == 2 else C_TXT2
-            bg = 0x040810 if idx == 2 else 0x040810
-
             canvas.setTextSize(1)
-            canvas.setTextColor(tc, bg)
-            canvas.drawString(day_label, AX + 8, row_y + 8)
+            canvas.setTextColor(C_TXT2, C_CARD)
+            canvas.drawString(day_label, AX + 10, row_y + 8)
 
-            # precip
             rl = rain_label(day.get('rain'))
-            # dry 
             rc = C_TXT2 if rl == "dry" else 0x60A8D0
-            canvas.setTextColor(rc, bg)
-            canvas.drawString(rl, AX + 100, row_y + 8)
+            canvas.setTextColor(rc, C_CARD)
+            canvas.drawString(rl, AX + 102, row_y + 8)
 
-            # wind
-            canvas.setTextColor(0x8080C0, bg)
+            canvas.setTextColor(0x8080C0, C_CARD)
             canvas.drawString("%d" % int(day.get('wind') or 0), AX + 163, row_y + 8)
 
-            # min / max
-            canvas.setTextColor(C_ICE2,   bg)
-            canvas.drawString("%.1f" % day['min'], AX + 205, row_y + 8)
-            canvas.setTextColor(0xFF6B6B, bg)
-            canvas.drawString("%.1f" % day['max'], AX + 257, row_y + 8)
+            canvas.setTextColor(C_ICE2, C_CARD)
+            canvas.drawString("%.1f" % day['min'], AX + 207, row_y + 8)
+            canvas.setTextColor(0xFF6B6B, C_CARD)
+            canvas.drawString("%.1f" % day['max'], AX + 259, row_y + 8)
 
     else:
         canvas.setTextColor(C_TXT2, C_CARD)
@@ -1068,17 +1076,23 @@ def draw_settings_screen():
     canvas.drawString("%.1f" % sea, 228, y + 10)
     btn(288, y + 4, 24, 20, "+", False)  # ← +/-  0.5 hPa
 
-    # NTP Sync
+    # Connectivity: WiFi + NTP 
     y = settings_row_y(5)
     canvas.fillRoundRect(8, y, 304, ROW_H - 4, 6, C_CARD)
     canvas.drawLine(9, y+1, 311, y+1, C_GLASS)
     canvas.setTextColor(C_TXT2, C_CARD); canvas.setTextSize(1)
-    canvas.drawString("Time sync (NTP)", 18, y + 13)
-    btn(220, y + 6, 84, 20, "Sync now", False)
+    canvas.drawString("Connectivity", 18, y + 13)
+    # SSID or "not set"
+    ssid_short = cfg.get('wifi_ssid', '')[:14] or 'not set'
+    canvas.setTextColor(C_TXT2, C_CARD)
+    canvas.drawString(ssid_short, 110, y + 13)
+    btn(222, y + 4, 36, 20, "WiFi", False)
+    btn(262, y + 4, 44, 20, "NTP", False)
 
     draw_nav_bar(canvas)
     canvas.push(0, 0)
     canvas.delete()
+
 
 async def handle_settings_touch(x, y):
     row = (y - ROW_START) // ROW_H
@@ -1120,8 +1134,13 @@ async def handle_settings_touch(x, y):
             cfg['sea_level_hpa'] = round(cfg.get('sea_level_hpa', 1013.25) + 0.5, 1)
             changed = True
 
-    elif row == 5: # NTP Sync
-        if x >= 220:
+    elif row == 5: # NTP Sync + WiFi settings
+        if 222 <= x <= 258:          # WiFi Setup
+            global wifi_screen, wifi_networks
+            wifi_networks = []       
+            wifi_screen = 1
+            render()
+        elif x >= 262:               # NTP Sync
             if await connect_wifi():
                 sync_ntp()
                 fetch_weather()
@@ -1193,7 +1212,7 @@ def show_splash():
 
     # V
     canvas.setTextColor(C_GLASS, C_BG)
-    canvas.drawString("v1.0   May 2026", 114, 210)
+    canvas.drawString("v1.5   Jun 2026", 114, 210)
 
     canvas.push(0, 0)
     canvas.delete()
@@ -1219,10 +1238,12 @@ def read_sensors(sensor):
                     #  Render
 # ══════════════════════════════════════════════════════
 def render():
-    if   current_screen == SCREEN_MAIN:     draw_main_screen()
-    elif current_screen == SCREEN_DATA:     draw_data_screen()    
+    if   wifi_screen == 1:            draw_wifi_list()
+    elif wifi_screen == 2:            draw_wifi_password()
+    elif current_screen == SCREEN_MAIN:     draw_main_screen()
+    elif current_screen == SCREEN_DATA:     draw_data_screen()
     elif current_screen == SCREEN_WEATHER:  draw_weather_screen()
-    elif current_screen == SCREEN_FORECAST: draw_forecast_screen() 
+    elif current_screen == SCREEN_FORECAST: draw_forecast_screen()
     elif current_screen == SCREEN_SETTINGS: draw_settings_screen()
     
 async def wifi_loop():
@@ -1319,6 +1340,482 @@ async def main_loop(sensor, rmt):
             render()
 
         await asyncio.sleep_ms(50) # reserved for future refactoring
+# ── WiFi Config constants ─────────────────────────────
+WL_ROW_H    = 28    
+WL_ROW_START = 92   
+WL_MAX_ROWS  = 5    # limit on a screen (Wlans)
+# ── Keyboard layout constants ─────────────────────────
+KB_KEY_W  = 29      
+KB_KEY_H  = 24      
+KB_GAP    = 2       
+KB_ROW_Y  = [104, 130, 156, 190]  
+
+KB_ROWS_ABC = [
+    list("QWERTYUIOP"),
+    list("ASDFGHJKL"),
+    list("ZXCVBNM"),
+    ["SHIFT", "SPACE", "DEL", "123"],
+]
+KB_ROWS_123 = [
+    list("1234567890"),
+    list("-/:;()@.,?"),
+    list("!\"#$%^&*_+"),
+    ["SHIFT", "SPACE", "DEL", "ABC"],
+]
+wifi_kb_caps  = 1   # 0=lowercase, 1=one-shot upper, 2=CAPS LOCK
+# ══════════════════════════════════════════════════════
+#  WiFi Config — List Screen
+# ══════════════════════════════════════════════════════
+def draw_wifi_list():
+    canvas = M5.Lcd.newCanvas(320, 240, 16, True)
+    canvas.fillRect(0, 0, 320, 240, C_BG)
+    canvas.fillRect(0,   0, 10, 240, 0x020508)
+    canvas.fillRect(310, 0, 10, 240, 0x020508)
+    canvas.drawRoundRect(2, 2, 316, 236, 8, C_ICE1)
+    canvas.drawRoundRect(3, 3, 314, 234, 8, 0x0F2840)   # inner shadow
+    # ── topbar ───────────────────────────────────────
+    canvas.fillRect(0, 0, 320, 32, C_TOPBAR)
+    canvas.fillRect(0, 31, 320, 1, C_SEP)
+    # btn Back
+    canvas.fillRoundRect(4, 5, 56, 22, 6, C_GLASS)
+    canvas.drawRoundRect(4, 5, 56, 22, 6, C_ICE1)
+    canvas.setTextColor(C_ICE1, C_GLASS)
+    canvas.setTextSize(1)
+    canvas.drawString("< Back", 10, 14)
+    # Header WiFi
+    canvas.setTextColor(C_A1, C_TOPBAR)
+    canvas.drawString("WiFi Setup", 122, 16)
+
+    # ── status ───────────────────
+    canvas.fillRoundRect(8, 36, 304, 22, 6, C_CARD)
+    canvas.fillRect(8, 36, 152, 2, C_A1)
+    canvas.fillRect(160, 36, 152, 2, C_DARK)
+    canvas.setTextSize(1)
+
+    wlan = network.WLAN(network.STA_IF)
+    if wlan.isconnected():
+        current_ssid = wlan.config('essid')
+        canvas.setTextColor(C_TXT2, C_CARD)
+        canvas.drawString("Connected:", 18, 51)
+        canvas.setTextColor(C_ICE1, C_CARD)
+        canvas.drawString(current_ssid[:20], 80, 51)
+    else:
+        canvas.setTextColor(C_TXT2, C_CARD)
+        canvas.drawString("Not connected", 18, 51)
+
+    # ── Header + btn Scan ───────────────
+    canvas.setTextColor(C_TXT2, C_BG)
+    canvas.drawString("Available networks", 18, 70)
+    canvas.fillRoundRect(238, 62, 52, 16, 4, C_GLASS)
+    # stripe
+    for sy in range(63, 78, 3):
+        canvas.drawLine(239, sy, 289, sy, 0x0A1828)
+    canvas.drawRoundRect(238, 62, 52, 16, 4, C_ICE1)
+    canvas.setTextColor(C_ICE1, C_GLASS)
+    canvas.drawString("Scan", 252, 67)
+    canvas.fillRect(8, 82, 304, 1, C_SEP)
+    # ── list  ─────────────────────────────────
+    if not wifi_networks:
+        canvas.setTextColor(C_TXT2, C_BG)
+        canvas.drawString("Tap Scan to search...", 18, 110)
+    else:
+        wlan_ssid = wlan.config('essid') if wlan.isconnected() else ""
+        for i, (ssid, rssi) in enumerate(wifi_networks[:WL_MAX_ROWS]):
+            ry = WL_ROW_START + i * WL_ROW_H
+            is_active = (ssid == wlan_ssid)
+
+            bg = 0x0D1E30 if is_active else C_CARD
+            canvas.fillRoundRect(8, ry, 304, WL_ROW_H - 2, 4, bg)
+            if is_active:
+                canvas.fillRect(8, ry, 3, WL_ROW_H - 2, C_A1)
+
+            # SSID cut
+            label = ssid[:26] if len(ssid) > 26 else ssid
+            tc = C_TXT if is_active else C_TXT2
+            canvas.setTextColor(tc, bg)
+            canvas.drawString(label, 18, ry + 14)
+
+            # rssi → 3 lvl
+            if rssi >= -60:   sig = "***"
+            elif rssi >= -75: sig = "** "
+            else:             sig = "*  "
+            sc = C_ICE1 if is_active else C_TXT2
+            canvas.setTextColor(sc, bg)
+            canvas.drawString(sig, 286, ry + 14)
+
+    canvas.push(0, 0)
+    canvas.delete()
+# ══════════════════════════════════════════════════════
+#  WiFi Config — Password Entry Screen
+# ══════════════════════════════════════════════════════
+def draw_wifi_password():
+    canvas = M5.Lcd.newCanvas(320, 240, 16, True)
+    canvas.fillRect(0, 0, 320, 240, C_BG)
+    canvas.fillRect(0,   0, 10, 240, 0x020508)
+    canvas.fillRect(310, 0, 10, 240, 0x020508)
+
+    # ── topbar ───────────────────────────────────────
+    canvas.fillRect(0, 0, 320, 32, C_TOPBAR)
+    canvas.fillRect(0, 31, 320, 1, C_SEP)
+    canvas.fillRoundRect(6, 6, 46, 20, 5, C_GLASS)
+    canvas.setTextColor(C_ICE1, C_GLASS)
+    canvas.setTextSize(1)
+    canvas.drawString("< Back", 12, 16)
+    canvas.setTextColor(C_A1, C_TOPBAR)
+    canvas.drawString("Enter Password", 106, 16)
+
+    # ── info card: SSID + password field ─────────────
+    canvas.fillRoundRect(8, 36, 304, 52, 8, C_CARD)
+    canvas.fillRect(8, 36, 152, 2, C_A1)
+    canvas.fillRect(160, 36, 152, 2, C_DARK)
+
+    canvas.setTextSize(1)
+    canvas.setTextColor(C_TXT2, C_CARD)
+    canvas.drawString("Network:", 18, 50)
+    canvas.setTextColor(C_ICE1, C_CARD)
+    ssid_label = wifi_selected[:24] if wifi_selected else "?"
+    canvas.drawString(ssid_label, 72, 50)
+
+    canvas.setTextColor(C_TXT2, C_CARD)
+    canvas.drawString("Password:", 18, 68)
+
+    # password field
+    canvas.fillRoundRect(74, 58, 164, 18, 3, 0x0D1E30)
+    if wifi_show_pass:
+        display_pass = wifi_password[:18]
+    else:
+        if len(wifi_password) > 0:
+            display_pass = "•" * (len(wifi_password) - 1) + wifi_password[-1]
+        else:
+            display_pass = ""
+    canvas.setTextColor(C_ICE1, 0x0D1E30)
+    canvas.drawString(display_pass[:18], 78, 69)
+    # cursor
+    cur_x = 78 + min(len(display_pass), 18) * 6
+    canvas.fillRect(cur_x, 59, 1, 14, C_ICE1)
+
+    # btn 👁 show/hide
+    eye_bg = C_A1 if wifi_show_pass else C_GLASS
+    canvas.fillRoundRect(242, 58, 28, 18, 3, eye_bg)
+    canvas.setTextColor(C_TXT, eye_bg)
+    canvas.drawString("show", 244, 69)
+
+    # btn ⌫ in a field 
+    canvas.fillRoundRect(274, 58, 28, 18, 3, 0x1A1030)
+    canvas.setTextColor(0xFF6B6B, 0x1A1030)
+    canvas.drawString("del", 280, 69)
+    # pass bar
+    bar_filled = min(len(wifi_password), 8) * 36
+    bar_color  = 0x4CAF50 if len(wifi_password) >= 8 else C_A1
+    canvas.fillRoundRect(74, 86, 236, 4, 2, C_DARK)
+    if bar_filled > 0:
+        canvas.fillRoundRect(74, 80, bar_filled, 4, 2, bar_color)
+    # ── keyboard ────────────────────────────────────
+    rows = KB_ROWS_123 if wifi_kb_nums else KB_ROWS_ABC
+
+    for row_idx, keys in enumerate(rows[:3]):   
+        n    = len(keys)
+        total_w = n * KB_KEY_W + (n - 1) * KB_GAP
+        start_x = (320 - total_w) // 2
+        ry = KB_ROW_Y[row_idx]
+
+        for col_idx, ch in enumerate(keys):
+            kx = start_x + col_idx * (KB_KEY_W + KB_GAP)
+            # Shift 
+            label = ch if wifi_kb_caps > 0 else ch.lower()
+            canvas.fillRoundRect(kx, ry, KB_KEY_W, KB_KEY_H, 4, C_GLASS)
+            canvas.setTextColor(C_TXT, C_GLASS)
+            canvas.drawString(label, kx + 9, ry + 15)
+
+    # ── totals ────────────────────────────────
+    ry = KB_ROW_Y[3]
+    # CAPS 
+    if wifi_kb_caps == 0:
+        caps_bg, caps_lbl = C_GLASS,   "abc"
+    elif wifi_kb_caps == 1:
+        caps_bg, caps_lbl = C_A1,      "ABC"
+    else:
+        caps_bg, caps_lbl = 0xFF6B6B,  "CAP"   # червоний = locked
+
+    canvas.fillRoundRect(6, ry, 40, KB_KEY_H, 4, caps_bg)
+    canvas.setTextColor(C_TXT, caps_bg)
+    canvas.drawString(caps_lbl, 10, ry + 15)
+
+    # SPACE
+    canvas.fillRoundRect(48, ry, 150, KB_KEY_H, 4, C_GLASS)
+    canvas.setTextColor(C_TXT2, C_GLASS)
+    canvas.drawString("space", 103, ry + 15)
+
+    # ⌫ Backspace
+    canvas.fillRoundRect(200, ry, 40, KB_KEY_H, 4, 0x1A1030)
+    canvas.setTextColor(0xFF6B6B, 0x1A1030)
+    canvas.drawString("<-", 210, ry + 15)
+
+    # 123 / ABC toggle
+    nums_bg = C_A1 if wifi_kb_nums else C_GLASS
+    nums_label = "ABC" if wifi_kb_nums else "123"
+    canvas.fillRoundRect(242, ry, 34, KB_KEY_H, 4, nums_bg)
+    canvas.setTextColor(C_TXT, nums_bg)
+    canvas.drawString(nums_label, 249, ry + 15)
+
+    # Connect
+    canvas.fillRoundRect(278, ry, 38, KB_KEY_H, 4, 0x005A9E)
+    canvas.setTextColor(C_TXT, 0x005A9E)
+    canvas.drawString("OK", 287, ry + 15)
+
+    canvas.push(0, 0)
+    canvas.delete()
+def kb_key_at(tx, ty):
+    
+    rows = KB_ROWS_123 if wifi_kb_nums else KB_ROWS_ABC
+
+    for row_idx, keys in enumerate(rows[:3]):
+        ry = KB_ROW_Y[row_idx]
+        if not (ry <= ty <= ry + KB_KEY_H):
+            continue
+        n       = len(keys)
+        total_w = n * KB_KEY_W + (n - 1) * KB_GAP
+        start_x = (320 - total_w) // 2
+        col_idx = (tx - start_x) // (KB_KEY_W + KB_GAP)
+        if 0 <= col_idx < n:
+            ch = keys[col_idx]
+            # tap check
+            kx = start_x + col_idx * (KB_KEY_W + KB_GAP)
+            if kx <= tx <= kx + KB_KEY_W:
+                return ch if wifi_kb_caps > 0 else ch.lower()
+    return None
+# ____________________
+# Connect with spinner
+async def do_wifi_connect():
+
+    global wifi_screen
+
+    # ── draw overlay spin ──────────────────────
+    canvas = M5.Lcd.newCanvas(320, 240, 16, True)
+    canvas.fillRect(0, 0, 320, 240, C_BG)
+    canvas.fillRect(0,   0, 10, 240, 0x020508)
+    canvas.fillRect(310, 0, 10, 240, 0x020508)
+
+    canvas.fillRect(0, 0, 320, 32, C_TOPBAR)
+    canvas.fillRect(0, 31, 320, 1, C_SEP)
+    canvas.setTextColor(C_A1, C_TOPBAR)
+    canvas.setTextSize(1)
+    canvas.drawString("Connecting...", 114, 16)
+
+    canvas.fillRoundRect(8, 60, 304, 80, 12, C_CARD)
+    canvas.fillRect(8, 60, 152, 2, C_A1)
+    canvas.fillRect(160, 60, 152, 2, C_DARK)
+
+    canvas.setTextColor(C_TXT2, C_CARD)
+    canvas.drawString("Connecting to:", 80, 80)
+    canvas.setTextColor(C_ICE1, C_CARD)
+    canvas.drawString(wifi_selected[:24], 80, 96)
+
+    # spin
+    for frame in range(16):
+        dots = "." * ((frame % 4) + 1) + "   "
+        canvas.fillRect(80, 108, 160, 14, C_CARD)
+        canvas.setTextColor(C_A1, C_CARD)
+        canvas.drawString("Please wait" + dots[:4], 80, 118)
+        canvas.push(0, 0)
+        await asyncio.sleep_ms(300)
+
+    canvas.delete()
+
+    # ── connect ──────────────────────────
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(wifi_selected, wifi_password)
+
+    connected = False
+    for _ in range(15):
+        if wlan.isconnected():
+            connected = True
+            break
+        # updating spin
+        canvas = M5.Lcd.newCanvas(320, 240, 16, True)
+        canvas.fillRect(0, 0, 320, 240, C_BG)
+        canvas.fillRect(0, 0, 320, 32, C_TOPBAR)
+        canvas.fillRect(0, 31, 320, 1, C_SEP)
+        canvas.setTextColor(C_A1, C_TOPBAR)
+        canvas.setTextSize(1)
+        canvas.drawString("Connecting...", 114, 16)
+        canvas.fillRoundRect(8, 60, 304, 80, 12, C_CARD)
+        canvas.fillRect(8, 60, 152, 2, C_A1)
+        canvas.fillRect(160, 60, 152, 2, C_DARK)
+        canvas.setTextColor(C_TXT2, C_CARD)
+        canvas.drawString("Connecting to:", 80, 80)
+        canvas.setTextColor(C_ICE1, C_CARD)
+        canvas.drawString(wifi_selected[:24], 80, 96)
+        canvas.setTextColor(C_A1, C_CARD)
+        canvas.drawString("Please wait...", 80, 118)
+        canvas.push(0, 0)
+        canvas.delete()
+        await asyncio.sleep(1)
+
+    # ── results ────────────────────────────────────
+    if connected:
+        cfg['wifi_ssid'] = wifi_selected
+        cfg['wifi_pass'] = wifi_password
+        save_config()
+        print("[wifi_cfg] connected and saved:", wifi_selected)
+        # show success retutn
+        _show_wifi_result(True, wlan.ifconfig()[0])
+        await asyncio.sleep(2)
+        wifi_screen = 0
+        render()
+    else:
+        wlan.active(False)
+        print("[wifi_cfg] connection failed")
+        _show_wifi_result(False, "")
+        await asyncio.sleep(2)
+        render()
+def _show_wifi_result(success, ip_str):
+    canvas = M5.Lcd.newCanvas(320, 240, 16, True)
+    canvas.fillRect(0, 0, 320, 240, C_BG)
+    canvas.fillRect(0, 0, 320, 32, C_TOPBAR)
+    canvas.fillRect(0, 31, 320, 1, C_SEP)
+    canvas.setTextSize(1)
+
+    if success:
+        canvas.setTextColor(C_A1, C_TOPBAR)
+        canvas.drawString("Connected!", 126, 16)
+        canvas.fillRoundRect(8, 60, 304, 80, 12, C_CARD)
+        canvas.fillRect(8, 60, 152, 2, 0x4CAF50)
+        canvas.fillRect(160, 60, 152, 2, C_DARK)
+        canvas.setTextColor(0x4CAF50, C_CARD)
+        canvas.drawString("Successfully connected", 60, 85)
+        canvas.setTextColor(C_TXT2, C_CARD)
+        canvas.drawString("IP:", 80, 103)
+        canvas.setTextColor(C_ICE1, C_CARD)
+        canvas.drawString(ip_str, 102, 103)
+        canvas.setTextColor(C_TXT2, C_CARD)
+        canvas.drawString("Config saved.", 100, 121)
+    else:
+        canvas.setTextColor(0xFF6B6B, C_TOPBAR)
+        canvas.drawString("Failed!", 134, 16)
+        canvas.fillRoundRect(8, 60, 304, 80, 12, C_CARD)
+        canvas.fillRect(8, 60, 152, 2, 0xFF6B6B)
+        canvas.fillRect(160, 60, 152, 2, C_DARK)
+        canvas.setTextColor(0xFF6B6B, C_CARD)
+        canvas.drawString("Connection failed", 80, 85)
+        canvas.setTextColor(C_TXT2, C_CARD)
+        canvas.drawString("Check password and retry.", 55, 103)
+
+    canvas.push(0, 0)
+    canvas.delete()
+#---touch handler for WiFi List:
+async def handle_wifi_list_touch(tx, ty):
+    global wifi_screen, wifi_networks, wifi_selected
+    global wifi_password, wifi_kb_shift, wifi_kb_nums
+
+    # ── Back button (topbar) ──────────────────────────
+    if ty <= 32 and tx <= 52:
+        wifi_screen = 0
+        render()
+        return
+
+    # ── Scan button ───────────────────────────────────
+    if 63 <= ty <= 79 and tx >= 236:
+        # show "Scanning..."
+        canvas = M5.Lcd.newCanvas(320, 240, 16, True)
+        canvas.fillRect(0, 0, 320, 240, C_BG)
+        canvas.fillRect(0, 0, 320, 32, C_TOPBAR)
+        canvas.fillRect(0, 31, 320, 1, C_SEP)
+        canvas.setTextColor(C_A1, C_TOPBAR)
+        canvas.setTextSize(1)
+        canvas.drawString("WiFi Setup", 122, 16)
+        canvas.setTextColor(C_TXT2, C_BG)
+        canvas.drawString("Scanning...", 120, 120)
+        canvas.push(0, 0)
+        canvas.delete()
+
+        wlan = network.WLAN(network.STA_IF)
+        wlan.active(True)
+        raw = wlan.scan()  
+        # (ssid_bytes, bssid, ch, rssi, auth, hidden)
+        nets = []
+        seen = set()
+        for item in raw:
+            try:
+                ssid = item[0].decode('utf-8', 'ignore').strip()
+            except:
+                ssid = str(item[0])
+            if ssid and ssid not in seen:
+                seen.add(ssid)
+                nets.append((ssid, item[3]))   # (ssid, rssi)
+        # sorting rssi 
+        nets.sort(key=lambda x: x[1], reverse=True)
+        wifi_networks = nets
+        render()
+        return
+
+    # ── tap wlan field ───────────────────────────
+    if ty >= WL_ROW_START:
+        idx = (ty - WL_ROW_START) // WL_ROW_H
+        if 0 <= idx < len(wifi_networks[:WL_MAX_ROWS]):
+            wifi_selected  = wifi_networks[idx][0]
+            wifi_password  = ""
+            wifi_kb_shift  = False
+            wifi_kb_nums   = False
+            wifi_screen    = 2
+            render()
+        return
+    
+async def handle_wifi_password_touch(tx, ty):
+    global wifi_screen, wifi_password
+    global wifi_kb_caps, wifi_kb_nums, wifi_show_pass
+
+    # ── Back button ───────────────────────────────────
+    if ty <= 32 and tx <= 52:
+        wifi_screen = 1
+        render()
+        return
+
+    # ── show/hide password ────────────────────────────
+    if 58 <= ty <= 76 and 242 <= tx <= 270:
+        wifi_show_pass = not wifi_show_pass
+        render()
+        return
+
+    # ── del pass field ─────────────────────────────
+    if 58 <= ty <= 76 and 274 <= tx <= 302:
+        wifi_password = wifi_password[:-1]
+        render()
+        return
+
+    # ── totals ─────────────
+    ry = KB_ROW_Y[3]
+    if ry <= ty <= ry + KB_KEY_H:
+        if tx <= 46:                          # SHIFT / регістр
+            wifi_kb_caps = (wifi_kb_caps + 1) % 3
+        elif 48 <= tx <= 198:                 # SPACE
+            wifi_password += " "
+            if wifi_kb_caps == 1:
+                wifi_kb_caps = 0
+        elif 200 <= tx <= 240:                # Backspace ⌫
+            wifi_password = wifi_password[:-1]
+        elif 242 <= tx <= 276:                # 123 / ABC toggle
+            wifi_kb_nums  = not wifi_kb_nums
+            wifi_kb_shift = False
+            wifi_kb_caps  = 1 
+        elif tx >= 278:                       # Connect / OK
+            if len(wifi_password) >= 8:
+                await do_wifi_connect()
+                return
+            else:
+                pass
+        render()
+        return
+
+    # ── symbols 0-2 ───────────────────────────
+    ch = kb_key_at(tx, ty)
+    if ch:
+        wifi_password += ch
+        # shift (one-shot)
+        if wifi_kb_caps == 1:
+            wifi_kb_caps = 0   # one-shot → lowercase
+        render()
 # ══════════════════════════════════════════════════════
 # main loop
 # ══════════════════════════════════════════════════════
@@ -1385,6 +1882,21 @@ async def main():
                 continue
 
             # Settings touch
+            if wifi_screen == 1:
+                await handle_wifi_list_touch(tx, ty)
+                while M5.Touch.getCount() > 0:
+                    M5.update()
+                    await asyncio.sleep_ms(20)
+                time.sleep_ms(80)
+                continue
+            if wifi_screen == 2:
+                await handle_wifi_password_touch(tx, ty)
+                # чекаємо поки палець підніметься
+                while M5.Touch.getCount() > 0:
+                    M5.update()
+                    await asyncio.sleep_ms(20)
+                time.sleep_ms(80)
+                continue
             if current_screen == SCREEN_SETTINGS:
                 if await handle_settings_touch(tx, ty):
                     save_config()
@@ -1431,6 +1943,7 @@ async def main():
         
 if __name__ == '__main__':
     asyncio.run(main())
+
 
 
 
