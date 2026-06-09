@@ -214,7 +214,8 @@ The `sea_level_hpa` value is *not* your current atmospheric pressure — it is t
     ├── weather.json     # Cached forecast (~2 KB)
     └── archive.json     # Cached 3-day history (date-keyed)
 ```
-```
+
+
 
 The `/flash/cache/` directory is created automatically on first successful weather fetch and stores `weather.json` (~2 KB).
 
