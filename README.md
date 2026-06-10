@@ -233,7 +233,13 @@ The `/flash/cache/` directory is created automatically on first successful weath
 
 **BMP background performance:** The 320×240 RGB565 BMP file (~150 KB) is read directly from flash into the display buffer without full RAM allocation, making it practical even on devices with limited SRAM.
 ---
-
+**Troubleshooting:** 
+```UIFlow's boot.py reads a boot_option value from NVS (non-volatile storage).```
+After a deep battery discharge, NVS can reset to an unexpected state, causing the device to boot into UIFlow instead of main.py. Removing boot.py entirely makes the ESP32-S3 run main.py directly — no UIFlow logic, no NVS dependency, no surprises after battery drain.
+Delete boot.py from the device:
+```pythonimport os
+os.remove('/flash/boot.py')```
+ 
 ## Roadmap
 
 - [x] Open-Meteo Archive API for 3-day outdoor weather history
