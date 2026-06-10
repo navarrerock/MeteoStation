@@ -237,8 +237,11 @@ The `/flash/cache/` directory is created automatically on first successful weath
 ```UIFlow's boot.py reads a boot_option value from NVS (non-volatile storage).```
 After a deep battery discharge, NVS can reset to an unexpected state, causing the device to boot into UIFlow instead of main.py. Removing boot.py entirely makes the ESP32-S3 run main.py directly — no UIFlow logic, no NVS dependency, no surprises after battery drain.
 Delete boot.py from the device:
-```pythonimport os
+
+```bash
+import os
 os.remove('/flash/boot.py')
+```
  
 ## Roadmap
 
