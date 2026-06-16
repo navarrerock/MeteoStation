@@ -534,13 +534,13 @@ def draw_main_screen():
      
 
     # ── temp: png ───
-    canvas.drawImage("/flash/icons/ui/thermometer.png", 104, 52)
+    canvas.drawImage("/flash/icons/ui/thermometer.png", 102, 52)
 
     # ── power ───────────────────────────────────────
     canvas.drawRoundRect(210, 38, 102, 90, 10, C_ICE2)
     canvas.fillRoundRect(210, 38, 102, 90, 12, C_CARD)
 
-    canvas.drawImage("/flash/icons/ui/battery_shell.png", 213, 34)
+    canvas.drawImage("/flash/icons/ui/battery_shell.png", 213, 33)
     fw = max(2, int(38 * battery / 100))
     bc = 0x4AB3D6 if battery > 50 else (0xF5C842 if battery > 20 else 0xE84040)
     canvas.fillRoundRect(224, 58, fw, 14, 2, bc)
