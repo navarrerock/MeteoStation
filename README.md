@@ -68,6 +68,7 @@ cp config.example.json config.json
 
 Open `config.json` and set at minimum `wifi_ssid`, `wifi_pass`, `weather_lat`, `weather_lon`, and `weather_city`. Coordinates for your location can be found on [open-meteo.com](https://open-meteo.com).
 > **Note:** Starting from v1.5, WiFi credentials can also be configured directly on the device via Settings → Connectivity → WiFi. No manual JSON editing required for WiFi setup.
+
 **Step 3 — Create the icon folders on the device:**
 
 Connect the device in Thonny and run in the REPL:
